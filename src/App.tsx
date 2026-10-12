@@ -143,8 +143,8 @@ export function App() {
           }
         });
 
-        // Smart Multi-Candidate Duration-Matched Lyrics Fetch
-        fetchLyricsFromLRCLIB(active.title, active.artist, active.duration).then(lyrics => {
+        // Stage 1: Instant Parallel LRCLIB Lookup (~200-350ms)
+        fetchLyricsFromLRCLIB(active.title, active.artist, active.duration, false).then(lyrics => {
           if (isMounted && lastLiveSignatureRef.current === signature) {
             if (lyrics && lyrics.syncedLyrics) {
               setCurrentLrcText(lyrics.syncedLyrics);
@@ -155,10 +155,19 @@ export function App() {
             }
           }
         });
+
+        // Stage 2: Non-blocking Background YouTube ANDROID srv3 Word-Level Sync Upgrade
+        if (active.source === 'youtube') {
+          fetchLyricsFromLRCLIB(active.title, active.artist, active.duration, true).then(ytLyrics => {
+            if (isMounted && lastLiveSignatureRef.current === signature && ytLyrics?.syncedLyrics) {
+              setCurrentLrcText(ytLyrics.syncedLyrics);
+            }
+          });
+        }
       } else {
         if (isDurationUpdated) {
           lastLiveDurationRef.current = active.duration;
-          fetchLyricsFromLRCLIB(active.title, active.artist, active.duration).then(lyrics => {
+          fetchLyricsFromLRCLIB(active.title, active.artist, active.duration, active.source === 'youtube').then(lyrics => {
             if (isMounted && lastLiveSignatureRef.current === signature) {
               if (lyrics && lyrics.syncedLyrics) {
                 setCurrentLrcText(lyrics.syncedLyrics);
@@ -208,11 +217,11 @@ export function App() {
     // 2. Subscribe to real-time SSE stream for 0ms latency push
     const unsubscribe = subscribeToMediaStream(sourceMode, handleUpdate);
 
-    // 3. Backup poll interval (in case SSE reconnects)
+    // 3. Fast backup poll interval (in case SSE reconnects)
     const backupInterval = setInterval(async () => {
       const res = await pollWindowsMediaSessions(sourceMode);
       handleUpdate(res);
-    }, 200);
+    }, 80);
 
     return () => {
       isMounted = false;

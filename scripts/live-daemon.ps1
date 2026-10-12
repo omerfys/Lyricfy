@@ -16,14 +16,17 @@ function Await-WinRt($WinRtTask, $ResultType) {
 }
 
 [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType = WindowsRuntime] | Out-Null
+[Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties, Windows.Media.Control, ContentType = WindowsRuntime] | Out-Null
 $mgr = Await-WinRt ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
 
 # Per-session hardware edge-triggered position tracker
 # Supports both Spotify (periodic 4s GSMTC ticks) and Chromium/YouTube Music (event-only GSMTC ticks on Play/Pause/Seek)
 $sessionTrackers = @{}
-$appLastSessionKey = @{}
+$isInitialBoot = $true
+$loopTick = 0
 
 while ($true) {
+    $loopTick++
     try {
         $nowOffset = [DateTimeOffset]::UtcNow
         $nowMs = $nowOffset.ToUnixTimeMilliseconds()
@@ -35,15 +38,15 @@ while ($true) {
 
         foreach ($s in $sessions) {
             try {
-                [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties, Windows.Media.Control, ContentType = WindowsRuntime] | Out-Null
                 $media = Await-WinRt ($s.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
                 $timeline = $s.GetTimelineProperties()
                 $playback = $s.GetPlaybackInfo()
 
                 $title = $media.Title
+                if (-not $title) { continue }
                 $artist = $media.Artist
                 $album = $media.AlbumTitle
-                $appId = $s.SourceAppUserModelId
+                $appId = if ($s.SourceAppUserModelId) { $s.SourceAppUserModelId } else { "unknown" }
 
                 $statusStr = $playback.PlaybackStatus.ToString()
                 $rawPos = $timeline.Position.TotalSeconds
@@ -55,12 +58,9 @@ while ($true) {
                 }
 
                 $sessionKey = "$appId|$title|$artist"
-                $isFirstSeenApp = -not $appLastSessionKey.ContainsKey($appId)
-                $isLiveTrackSwitch = (-not $isFirstSeenApp) -and ($appLastSessionKey[$appId] -ne $sessionKey)
-                $appLastSessionKey[$appId] = $sessionKey
+                $isNewOrReturnedTrack = (-not $sessionTrackers.ContainsKey($sessionKey)) -or (($loopTick - $sessionTrackers[$sessionKey].LastSeenTick) -gt 4)
 
-                if ((-not $sessionTrackers.ContainsKey($sessionKey)) -or $isLiveTrackSwitch) {
-                    # Track discovery: distinguish joining an already-playing song on startup vs switching tracks live
+                if ($isNewOrReturnedTrack) {
                     $initPos = $rawPos
                     $initAge = if ($timeline.LastUpdatedTime -and $timeline.LastUpdatedTime.Year -gt 2020) {
                         ($nowOffset - $timeline.LastUpdatedTime).TotalSeconds
@@ -68,8 +68,8 @@ while ($true) {
                         999999
                     }
 
-                    if ($isLiveTrackSwitch) {
-                        # Track just switched live while daemon is running (<60ms ago).
+                    if (-not $isInitialBoot) {
+                        # Track just switched live while daemon is running!
                         # If LastUpdatedTime is older than 1.5s, timeline still holds the previous song's stale state!
                         if ($initAge -le 1.5 -and $rawPos -ge 0 -and $rawPos -lt 10.0) {
                             $initPos = $rawPos + [Math]::Max(0, $initAge)
@@ -89,10 +89,13 @@ while ($true) {
                         AnchorPos = $initPos
                         AnchorTime = $nowOffset
                         LastStatus = $statusStr
+                        LastSeenTick = $loopTick
+                        TrackSwitchedAtMs = if ($isInitialBoot) { $lastUpdMs } else { $nowMs }
                     }
                 }
 
                 $tracker = $sessionTrackers[$sessionKey]
+                $tracker.LastSeenTick = $loopTick
                 $rawPosChanged = ([Math]::Abs($rawPos - $tracker.LastRawPos) -gt 0.001)
                 $updTimeChanged = ($lastUpdMs -gt 0 -and $lastUpdMs -ne $tracker.LastUpdMs)
 
@@ -154,6 +157,8 @@ while ($true) {
                 }
 
                 $isCurrentSession = [bool]($currentAppId -and ($appId -eq $currentAppId))
+                $effectiveLastUpdMs = [Math]::Max($lastUpdMs, $tracker.TrackSwitchedAtMs)
+                $effectiveStatus = if ($statusStr -in @('Changing', 'Opened')) { 'Playing' } else { $statusStr }
 
                 $output += [PSCustomObject]@{
                     AppId = $appId
@@ -161,15 +166,17 @@ while ($true) {
                     Artist = $artist
                     Album = $album
                     Source = $detectedSource
-                    Status = $statusStr
+                    Status = $effectiveStatus
                     PositionSeconds = [Math]::Round($posSec, 3)
                     DurationSeconds = $durSec
                     IsCurrent = $isCurrentSession
-                    LastUpdatedMs = $lastUpdMs
+                    LastUpdatedMs = $effectiveLastUpdMs
                     ServerTimeMs = $nowMs
                 }
             } catch {}
         }
+
+        $isInitialBoot = $false
 
         if ($output.Count -gt 0) {
             if ($output.Count -eq 1) {
@@ -189,5 +196,5 @@ while ($true) {
         # ignore loop error
     }
 
-    Start-Sleep -Milliseconds 60
+    Start-Sleep -Milliseconds 25
 }

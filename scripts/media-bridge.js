@@ -250,7 +250,7 @@ function wordsRoughlyMatch(aNorm, bNorm) {
   return false;
 }
 
-async function fetchYouTubeSyncData(trackName, artistName, targetDuration) {
+async function fetchYouTubeSyncData(trackName, artistName, targetDuration, needPlainLyrics = false) {
   try {
     const cleanTrack = cleanTrackTitle(trackName);
     const cleanArtist = (artistName || '')
@@ -259,74 +259,82 @@ async function fetchYouTubeSyncData(trackName, artistName, targetDuration) {
     const query = `${cleanTrack} ${cleanArtist}`.trim();
     if (!query) return null;
 
-    const candidateVideoIds = [];
-    const seenIds = new Set();
+    const htmlVideoIds = [];
+    const ytmVideoIds = [];
 
-    try {
-      const searchHtmlRes = await fetch(
-        `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`,
-        {
-          headers: {
-            'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Cookie': 'CONSENT=YES+cb',
-          },
-        }
-      );
-      if (searchHtmlRes.ok) {
-        const html = await searchHtmlRes.text();
-        const videoRegex = /"videoRenderer":\{"videoId":"([a-zA-Z0-9_-]{11})"(?:(?!videoRenderer).)*?"lengthText":\{(?:(?!lengthText).)*?"simpleText":"(\d+:\d+(?::\d+)?)"\}/g;
-        const matches = [];
-        let m;
-        while ((m = videoRegex.exec(html)) !== null) {
-          const vid = m[1];
-          const parts = m[2].split(':').map(Number);
-          const durSec =
-            parts.length === 3
-              ? parts[0] * 3600 + parts[1] * 60 + parts[2]
-              : parts[0] * 60 + parts[1];
-          matches.push({ videoId: vid, duration: durSec });
-          if (matches.length >= 10) break;
-        }
-
-        if (targetDuration && targetDuration > 15) {
-          matches.sort(
-            (a, b) => Math.abs(a.duration - targetDuration) - Math.abs(b.duration - targetDuration)
+    await Promise.all([
+      (async () => {
+        try {
+          const searchHtmlRes = await fetch(
+            `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`,
+            {
+              headers: {
+                'User-Agent':
+                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Cookie': 'CONSENT=YES+cb',
+              },
+            }
           );
-        }
+          if (searchHtmlRes.ok) {
+            const html = await searchHtmlRes.text();
+            const videoRegex = /"videoRenderer":\{"videoId":"([a-zA-Z0-9_-]{11})"(?:(?!videoRenderer).)*?"lengthText":\{(?:(?!lengthText).)*?"simpleText":"(\d+:\d+(?::\d+)?)"\}/g;
+            const matches = [];
+            let m;
+            while ((m = videoRegex.exec(html)) !== null) {
+              const vid = m[1];
+              const parts = m[2].split(':').map(Number);
+              const durSec =
+                parts.length === 3
+                  ? parts[0] * 3600 + parts[1] * 60 + parts[2]
+                  : parts[0] * 60 + parts[1];
+              matches.push({ videoId: vid, duration: durSec });
+              if (matches.length >= 10) break;
+            }
 
-        for (const item of matches) {
-          if (!targetDuration || targetDuration <= 15 || Math.abs(item.duration - targetDuration) <= 25) {
-            if (!seenIds.has(item.videoId)) {
-              seenIds.add(item.videoId);
-              candidateVideoIds.push(item.videoId);
+            if (targetDuration && targetDuration > 15) {
+              matches.sort(
+                (a, b) => Math.abs(a.duration - targetDuration) - Math.abs(b.duration - targetDuration)
+              );
+            }
+
+            for (const item of matches) {
+              if (!targetDuration || targetDuration <= 15 || Math.abs(item.duration - targetDuration) <= 25) {
+                htmlVideoIds.push(item.videoId);
+              }
             }
           }
-        }
-      }
-    } catch {}
-
-    try {
-      const ytmSearchRes = await fetch('https://music.youtube.com/youtubei/v1/search?prettyPrint=false', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-        body: JSON.stringify({
-          context: { client: { clientName: 'WEB_REMIX', clientVersion: '1.20250101.01.00', hl: 'tr', gl: 'TR' } },
-          query,
-        }),
-      });
-      if (ytmSearchRes.ok) {
-        const ytmTxt = await ytmSearchRes.text();
-        const vidMatches = [...ytmTxt.matchAll(/"videoId":"([a-zA-Z0-9_-]{11})"/g)];
-        for (const vm of vidMatches.slice(0, 5)) {
-          if (!seenIds.has(vm[1])) {
-            seenIds.add(vm[1]);
-            candidateVideoIds.push(vm[1]);
+        } catch {}
+      })(),
+      (async () => {
+        try {
+          const ytmSearchRes = await fetch('https://music.youtube.com/youtubei/v1/search?prettyPrint=false', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+            body: JSON.stringify({
+              context: { client: { clientName: 'WEB_REMIX', clientVersion: '1.20250101.01.00', hl: 'tr', gl: 'TR' } },
+              query,
+            }),
+          });
+          if (ytmSearchRes.ok) {
+            const ytmTxt = await ytmSearchRes.text();
+            const vidMatches = [...ytmTxt.matchAll(/"videoId":"([a-zA-Z0-9_-]{11})"/g)];
+            for (const vm of vidMatches.slice(0, 5)) {
+              ytmVideoIds.push(vm[1]);
+            }
           }
-        }
+        } catch {}
+      })(),
+    ]);
+
+    const seenIds = new Set();
+    const candidateVideoIds = [];
+    for (const id of [...htmlVideoIds, ...ytmVideoIds]) {
+      if (!seenIds.has(id)) {
+        seenIds.add(id);
+        candidateVideoIds.push(id);
       }
-    } catch {}
+    }
 
     if (candidateVideoIds.length === 0) return null;
 
@@ -334,156 +342,167 @@ async function fetchYouTubeSyncData(trackName, artistName, targetDuration) {
     let ytEvents = [];
     let ytmPlainLyrics = null;
 
-    for (const videoId of candidateVideoIds.slice(0, 3)) {
-      try {
-        const playerRes = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            context: {
-              client: {
-                clientName: 'ANDROID',
-                clientVersion: '20.03.35',
-                androidSdkVersion: 34,
-                osName: 'Android',
-                osVersion: '14',
-                hl: 'tr',
-                gl: 'TR',
+    const captionResults = await Promise.all(
+      candidateVideoIds.slice(0, 3).map(async (videoId) => {
+        try {
+          const playerRes = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              context: {
+                client: {
+                  clientName: 'ANDROID',
+                  clientVersion: '20.03.35',
+                  androidSdkVersion: 34,
+                  osName: 'Android',
+                  osVersion: '14',
+                  hl: 'tr',
+                  gl: 'TR',
+                },
               },
-            },
-            videoId,
-          }),
-        });
-        if (!playerRes.ok) continue;
-        const playerData = await playerRes.json();
-        const vidLenSec = Number(playerData?.videoDetails?.lengthSeconds || 0);
-        if (targetDuration > 15 && vidLenSec > 15 && Math.abs(vidLenSec - targetDuration) > 25) {
-          continue;
-        }
-
-        const captionTracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
-        if (captionTracks.length === 0) continue;
-
-        captionTracks.sort((a, b) => {
-          const aLang = (a.languageCode || '').toLowerCase();
-          const bLang = (b.languageCode || '').toLowerCase();
-          const aTr = aLang.startsWith('tr') ? 2 : aLang.startsWith('en') ? 1 : 0;
-          const bTr = bLang.startsWith('tr') ? 2 : bLang.startsWith('en') ? 1 : 0;
-          if (aTr !== bTr) return bTr - aTr;
-          const aAsr = a.kind === 'asr' ? 1 : 0;
-          const bAsr = b.kind === 'asr' ? 1 : 0;
-          return bAsr - aAsr;
-        });
-
-        const chosenTrack = captionTracks[0];
-        if (!chosenTrack || !chosenTrack.baseUrl) continue;
-
-        const xmlRes = await fetch(chosenTrack.baseUrl);
-        if (!xmlRes.ok) continue;
-        const xml = await xmlRes.text();
-        if (!xml || xml.length < 50) continue;
-
-        const words = [];
-        const events = [];
-        const pRe = /<p t="(\d+)" d="(\d+)"[^>]*>([\s\S]*?)<\/p>/g;
-        let pm;
-        while ((pm = pRe.exec(xml)) !== null) {
-          const pStartMs = parseInt(pm[1], 10);
-          const inner = pm[3];
-          if (!inner || !inner.trim()) continue;
-
-          const sRe = /<s(?: t="(\d+)")?[^>]*>([^<]+)<\/s>/g;
-          let sm;
-          const segWords = [];
-          while ((sm = sRe.exec(inner)) !== null) {
-            const offMs = sm[1] ? parseInt(sm[1], 10) : 0;
-            const rawW = sm[2]
-              .replace(/&amp;/g, '&')
-              .replace(/&quot;/g, '"')
-              .replace(/&#39;/g, "'")
-              .replace(/\[.*?\]|\(.*?\)|♪+|♫+/g, '')
-              .trim();
-            if (!rawW) continue;
-            const wTime = (pStartMs + offMs) / 1000;
-            const normW = normalizeText(rawW);
-            if (normW) {
-              words.push({ time: wTime, raw: rawW, norm: normW });
-              segWords.push({ time: wTime, text: rawW, norm: normW });
-            }
+              videoId,
+            }),
+          });
+          if (!playerRes.ok) return null;
+          const playerData = await playerRes.json();
+          const vidLenSec = Number(playerData?.videoDetails?.lengthSeconds || 0);
+          if (targetDuration > 15 && vidLenSec > 15 && Math.abs(vidLenSec - targetDuration) > 25) {
+            return null;
           }
 
-          if (segWords.length === 0) {
-            const cleanP = inner
-              .replace(/<[^>]+>/g, ' ')
-              .replace(/&amp;/g, '&')
-              .replace(/&quot;/g, '"')
-              .replace(/&#39;/g, "'")
-              .replace(/\[.*?\]|\(.*?\)|♪+|♫+/g, '')
-              .replace(/\s+/g, ' ')
-              .trim();
-            if (cleanP.length >= 2) {
-              const pTokens = cleanP.split(' ').filter(Boolean);
-              const pDurSec = Math.max(0.5, parseInt(pm[2], 10) / 1000);
-              pTokens.forEach((tok, idx) => {
-                const wTime = pStartMs / 1000 + (idx / pTokens.length) * (pDurSec * 0.85);
-                const normW = normalizeText(tok);
-                if (normW) {
-                  words.push({ time: wTime, raw: tok, norm: normW });
-                  segWords.push({ time: wTime, text: tok, norm: normW });
-                }
+          const captionTracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+          if (captionTracks.length === 0) return null;
+
+          captionTracks.sort((a, b) => {
+            const aLang = (a.languageCode || '').toLowerCase();
+            const bLang = (b.languageCode || '').toLowerCase();
+            const aTr = aLang.startsWith('tr') ? 2 : aLang.startsWith('en') ? 1 : 0;
+            const bTr = bLang.startsWith('tr') ? 2 : bLang.startsWith('en') ? 1 : 0;
+            if (aTr !== bTr) return bTr - aTr;
+            const aAsr = a.kind === 'asr' ? 1 : 0;
+            const bAsr = b.kind === 'asr' ? 1 : 0;
+            return bAsr - aAsr;
+          });
+
+          const chosenTrack = captionTracks[0];
+          if (!chosenTrack || !chosenTrack.baseUrl) return null;
+
+          const xmlRes = await fetch(chosenTrack.baseUrl);
+          if (!xmlRes.ok) return null;
+          const xml = await xmlRes.text();
+          if (!xml || xml.length < 50) return null;
+
+          const words = [];
+          const events = [];
+          const pRe = /<p t="(\d+)" d="(\d+)"[^>]*>([\s\S]*?)<\/p>/g;
+          let pm;
+          while ((pm = pRe.exec(xml)) !== null) {
+            const pStartMs = parseInt(pm[1], 10);
+            const inner = pm[3];
+            if (!inner || !inner.trim()) continue;
+
+            const sRe = /<s(?: t="(\d+)")?[^>]*>([^<]+)<\/s>/g;
+            let sm;
+            const segWords = [];
+            while ((sm = sRe.exec(inner)) !== null) {
+              const offMs = sm[1] ? parseInt(sm[1], 10) : 0;
+              const rawW = sm[2]
+                .replace(/&amp;/g, '&')
+                .replace(/&quot;/g, '"')
+                .replace(/&#39;/g, "'")
+                .replace(/\[.*?\]|\(.*?\)|♪+|♫+/g, '')
+                .trim();
+              if (!rawW) continue;
+              const wTime = (pStartMs + offMs) / 1000;
+              const normW = normalizeText(rawW);
+              if (normW) {
+                words.push({ time: wTime, raw: rawW, norm: normW });
+                segWords.push({ time: wTime, text: rawW, norm: normW });
+              }
+            }
+
+            if (segWords.length === 0) {
+              const cleanP = inner
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/&amp;/g, '&')
+                .replace(/&quot;/g, '"')
+                .replace(/&#39;/g, "'")
+                .replace(/\[.*?\]|\(.*?\)|♪+|♫+/g, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+              if (cleanP.length >= 2) {
+                const pTokens = cleanP.split(' ').filter(Boolean);
+                const pDurSec = Math.max(0.5, parseInt(pm[2], 10) / 1000);
+                pTokens.forEach((tok, idx) => {
+                  const wTime = pStartMs / 1000 + (idx / pTokens.length) * (pDurSec * 0.85);
+                  const normW = normalizeText(tok);
+                  if (normW) {
+                    words.push({ time: wTime, raw: tok, norm: normW });
+                    segWords.push({ time: wTime, text: tok, norm: normW });
+                  }
+                });
+              }
+            }
+
+            if (segWords.length > 0) {
+              events.push({
+                startSec: segWords[0].time,
+                text: segWords.map(w => w.text).join(' '),
+                normTokens: segWords.map(w => w.norm).filter(Boolean),
+                segWords,
               });
             }
           }
 
-          if (segWords.length > 0) {
-            events.push({
-              startSec: segWords[0].time,
-              text: segWords.map(w => w.text).join(' '),
-              normTokens: segWords.map(w => w.norm).filter(Boolean),
-              segWords,
-            });
+          if (words.length >= 6) {
+            return { words, events, durDiff: targetDuration > 15 && vidLenSec > 15 ? Math.abs(vidLenSec - targetDuration) : 999 };
           }
+          return null;
+        } catch {
+          return null;
         }
+      })
+    );
 
-        if (words.length >= 6) {
-          ytWords = words;
-          ytEvents = events;
-          break;
-        }
-      } catch {}
+    const validCaptions = captionResults.filter(Boolean).sort((a, b) => a.durDiff - b.durDiff);
+    if (validCaptions.length > 0) {
+      ytWords = validCaptions[0].words;
+      ytEvents = validCaptions[0].events;
     }
 
-    for (const videoId of candidateVideoIds.slice(0, 2)) {
-      try {
-        const nextRes = await fetch('https://music.youtube.com/youtubei/v1/next?prettyPrint=false', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            context: { client: { clientName: 'WEB_REMIX', clientVersion: '1.20250101.01.00', hl: 'tr', gl: 'TR' } },
-            videoId,
-          }),
-        });
-        if (!nextRes.ok) continue;
-        const nextTxt = await nextRes.text();
-        const bMatch = nextTxt.match(/"browseId":"(MPLYt_[^"]+)"/);
-        if (!bMatch?.[1]) continue;
+    if (needPlainLyrics) {
+      for (const videoId of candidateVideoIds.slice(0, 2)) {
+        try {
+          const nextRes = await fetch('https://music.youtube.com/youtubei/v1/next?prettyPrint=false', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              context: { client: { clientName: 'WEB_REMIX', clientVersion: '1.20250101.01.00', hl: 'tr', gl: 'TR' } },
+              videoId,
+            }),
+          });
+          if (!nextRes.ok) continue;
+          const nextTxt = await nextRes.text();
+          const bMatch = nextTxt.match(/"browseId":"(MPLYt_[^"]+)"/);
+          if (!bMatch?.[1]) continue;
 
-        const browseRes = await fetch('https://music.youtube.com/youtubei/v1/browse?prettyPrint=false', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            context: { client: { clientName: 'WEB_REMIX', clientVersion: '1.20250101.01.00', hl: 'tr', gl: 'TR' } },
-            browseId: bMatch[1],
-          }),
-        });
-        if (!browseRes.ok) continue;
-        const browseTxt = await browseRes.text();
-        const descMatch = browseTxt.match(/"description":\{"runs":\[\{"text":"((?:\\.|[^"\\])+)"/);
-        if (descMatch?.[1]) {
-          ytmPlainLyrics = JSON.parse(`"${descMatch[1]}"`);
-          break;
-        }
-      } catch {}
+          const browseRes = await fetch('https://music.youtube.com/youtubei/v1/browse?prettyPrint=false', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              context: { client: { clientName: 'WEB_REMIX', clientVersion: '1.20250101.01.00', hl: 'tr', gl: 'TR' } },
+              browseId: bMatch[1],
+            }),
+          });
+          if (!browseRes.ok) continue;
+          const browseTxt = await browseRes.text();
+          const descMatch = browseTxt.match(/"description":\{"runs":\[\{"text":"((?:\\.|[^"\\])+)"/);
+          if (descMatch?.[1]) {
+            ytmPlainLyrics = JSON.parse(`"${descMatch[1]}"`);
+            break;
+          }
+        } catch {}
+      }
     }
 
     return { ytWords, ytEvents, ytmPlainLyrics };
@@ -794,9 +813,9 @@ async function fetchJsonWithRetry(url, retries = 2) {
   return null;
 }
 
-async function fetchLyricsBackend(trackName, artistName, duration) {
+async function fetchLyricsBackend(trackName, artistName, duration, wantYoutubeSync = false) {
   const roundedDur = Math.round(duration || 0);
-  const cacheKey = `${trackName}__${artistName}__${roundedDur}`.toLowerCase();
+  const cacheKey = `${trackName}__${artistName}__${roundedDur}__${wantYoutubeSync ? 'yt' : 'fast'}`.toLowerCase();
   if (lyricsMemoryCache.has(cacheKey)) {
     return lyricsMemoryCache.get(cacheKey);
   }
@@ -804,69 +823,98 @@ async function fetchLyricsBackend(trackName, artistName, duration) {
   const candidates = getCandidates(trackName, artistName);
   const collected = [];
 
-  const ytSyncPromise = fetchYouTubeSyncData(trackName, artistName, duration);
+  const lrcTasks = [];
 
   for (const cand of candidates.slice(0, 3)) {
-    if (!cand.track || !cand.artist) continue;
-    try {
-      let getUrl = `https://lrclib.net/api/get?track_name=${encodeURIComponent(cand.track)}&artist_name=${encodeURIComponent(cand.artist)}`;
-      if (duration && duration > 15) {
-        getUrl += `&duration=${Math.round(duration)}`;
-      }
-      const item = await fetchJsonWithRetry(getUrl, 1);
-      if (item && (item.syncedLyrics || item.plainLyrics)) {
-        const sc = scoreLrcItem(item, duration, cand.track, cand.artist || artistName);
-        if (sc > 0) {
-          collected.push({ item, score: sc + 20 });
-        }
-      }
-    } catch {}
-  }
-
-  for (const cand of candidates) {
-    try {
-      let searchUrl = `https://lrclib.net/api/search?track_name=${encodeURIComponent(cand.track)}`;
-      if (cand.artist && cand.artist.trim()) {
-        searchUrl += `&artist_name=${encodeURIComponent(cand.artist.trim())}`;
-      }
-      const list = await fetchJsonWithRetry(searchUrl, 2);
-      if (Array.isArray(list) && list.length > 0) {
-        for (const it of list) {
-          const sc = scoreLrcItem(it, duration, cand.track, cand.artist || artistName);
-          if (sc > 0) {
-            collected.push({ item: it, score: sc });
-          }
-        }
-        if (collected.some(c => c.score >= 360)) break;
-      }
-    } catch {}
-  }
-
-  if (!collected.some(c => c.item.syncedLyrics)) {
-    for (const cand of candidates.slice(0, 2)) {
-      try {
-        const q = `${cand.track} ${cand.artist}`.trim();
-        const items = await fetchJsonWithRetry(`https://lrclib.net/api/search?q=${encodeURIComponent(q)}`, 2);
-        if (Array.isArray(items)) {
-          for (const it of items) {
-            const sc = scoreLrcItem(it, duration, cand.track, cand.artist || artistName);
-            if (sc > 0) {
-              collected.push({ item: it, score: sc });
+    if (cand.track && cand.artist) {
+      lrcTasks.push(
+        (async () => {
+          try {
+            let getUrl = `https://lrclib.net/api/get?track_name=${encodeURIComponent(cand.track)}&artist_name=${encodeURIComponent(cand.artist)}`;
+            if (duration && duration > 15) {
+              getUrl += `&duration=${Math.round(duration)}`;
             }
-          }
-        }
-      } catch {}
+            const item = await fetchJsonWithRetry(getUrl, 0);
+            if (item && (item.syncedLyrics || item.plainLyrics)) {
+              const sc = scoreLrcItem(item, duration, cand.track, cand.artist || artistName);
+              if (sc > 0) {
+                collected.push({ item, score: sc + 20 });
+              }
+            }
+          } catch {}
+        })()
+      );
+    }
+
+    if (cand.track) {
+      lrcTasks.push(
+        (async () => {
+          try {
+            let searchUrl = `https://lrclib.net/api/search?track_name=${encodeURIComponent(cand.track)}`;
+            if (cand.artist && cand.artist.trim()) {
+              searchUrl += `&artist_name=${encodeURIComponent(cand.artist.trim())}`;
+            }
+            const list = await fetchJsonWithRetry(searchUrl, 1);
+            if (Array.isArray(list) && list.length > 0) {
+              for (const it of list) {
+                const sc = scoreLrcItem(it, duration, cand.track, cand.artist || artistName);
+                if (sc > 0) {
+                  collected.push({ item: it, score: sc });
+                }
+              }
+            }
+          } catch {}
+        })()
+      );
     }
   }
 
-  const ytData = await ytSyncPromise;
-  const ytWords = ytData?.ytWords || [];
-  const ytEvents = ytData?.ytEvents || [];
-  const ytmPlainLyrics = ytData?.ytmPlainLyrics || null;
+  await Promise.all(lrcTasks);
+
+  if (!collected.some(c => c.item.syncedLyrics)) {
+    await Promise.all(
+      candidates.slice(0, 2).map(async (cand) => {
+        try {
+          const q = `${cand.track} ${cand.artist}`.trim();
+          const items = await fetchJsonWithRetry(`https://lrclib.net/api/search?q=${encodeURIComponent(q)}`, 1);
+          if (Array.isArray(items)) {
+            for (const it of items) {
+              const sc = scoreLrcItem(it, duration, cand.track, cand.artist || artistName);
+              if (sc > 0) {
+                collected.push({ item: it, score: sc });
+              }
+            }
+          }
+        } catch {}
+      })
+    );
+  }
 
   if (collected.length > 0) {
     collected.sort((a, b) => b.score - a.score);
     const best = collected[0].item;
+    const durDiff =
+      duration && duration > 15 && best.duration > 15
+        ? Math.abs(best.duration - duration)
+        : 0;
+
+    if (!wantYoutubeSync && best.syncedLyrics && durDiff <= 8.0) {
+      const fastResult = {
+        syncedLyrics: best.syncedLyrics,
+        plainLyrics: best.plainLyrics,
+        trackName: best.trackName,
+        artistName: best.artistName,
+        duration: duration || best.duration,
+      };
+      lyricsMemoryCache.set(cacheKey, fastResult);
+      return fastResult;
+    }
+
+    const ytData = await fetchYouTubeSyncData(trackName, artistName, duration, !best.syncedLyrics && !best.plainLyrics);
+    const ytWords = ytData?.ytWords || [];
+    const ytEvents = ytData?.ytEvents || [];
+    const ytmPlainLyrics = ytData?.ytmPlainLyrics || null;
+
     let finalSynced = best.syncedLyrics;
     const finalPlain = best.plainLyrics || ytmPlainLyrics;
 
@@ -890,6 +938,11 @@ async function fetchLyricsBackend(trackName, artistName, duration) {
     lyricsMemoryCache.set(cacheKey, result);
     return result;
   }
+
+  const ytData = await fetchYouTubeSyncData(trackName, artistName, duration, true);
+  const ytWords = ytData?.ytWords || [];
+  const ytEvents = ytData?.ytEvents || [];
+  const ytmPlainLyrics = ytData?.ytmPlainLyrics || null;
 
   if (ytmPlainLyrics && ytWords.length >= 6) {
     const alignedYtm = alignPlainLyricsWithYouTubeWords(ytmPlainLyrics, ytWords, duration);
@@ -951,7 +1004,7 @@ const server = http.createServer(async (req, res) => {
 
   if (parsedUrl.pathname === '/api/media/stream') {
     res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
+      'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
     });
@@ -962,7 +1015,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsedUrl.pathname === '/api/media') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(latestState));
     return;
   }
@@ -971,19 +1024,20 @@ const server = http.createServer(async (req, res) => {
     const track = parsedUrl.searchParams.get('track') || '';
     const artist = parsedUrl.searchParams.get('artist') || '';
     const duration = parseFloat(parsedUrl.searchParams.get('duration') || '0');
+    const wantYoutubeSync = parsedUrl.searchParams.get('yt') === '1';
 
     if (!track) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: 'Missing track parameter' }));
       return;
     }
 
-    const lyrics = await fetchLyricsBackend(track, artist, duration);
+    const lyrics = await fetchLyricsBackend(track, artist, duration, wantYoutubeSync);
     if (lyrics) {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify(lyrics));
     } else {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: 'Lyrics not found' }));
     }
     return;

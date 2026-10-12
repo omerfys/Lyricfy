@@ -554,17 +554,18 @@ function scoreCandidate(
 export async function fetchLyricsFromLRCLIB(
   trackName: string,
   artistName: string,
-  duration?: number
+  duration?: number,
+  wantYoutubeSync: boolean = false
 ): Promise<{ syncedLyrics?: string; plainLyrics?: string } | null> {
   const roundedDur = Math.round(duration || 0);
-  const cacheKey = `${trackName}__${artistName}__${roundedDur}`.toLowerCase();
+  const cacheKey = `${trackName}__${artistName}__${roundedDur}__${wantYoutubeSync ? 'yt' : 'fast'}`.toLowerCase();
   if (lyricsCache.has(cacheKey)) {
     return lyricsCache.get(cacheKey)!;
   }
 
   // 1. Primary Method: Fetch via local Media Bridge proxy
   try {
-    const proxyUrl = `http://localhost:4892/api/lyrics?track=${encodeURIComponent(trackName)}&artist=${encodeURIComponent(artistName)}&duration=${duration || 0}`;
+    const proxyUrl = `http://localhost:4892/api/lyrics?track=${encodeURIComponent(trackName)}&artist=${encodeURIComponent(artistName)}&duration=${duration || 0}${wantYoutubeSync ? '&yt=1' : ''}`;
     const res = await fetch(proxyUrl);
     if (res.ok) {
       const data = await res.json();
@@ -584,31 +585,32 @@ export async function fetchLyricsFromLRCLIB(
     // bridge unreachable, fallback to direct browser fetch
   }
 
-  // 2. Direct Fallback with Strict Artist & Duration Scoring
+  // 2. Direct Parallel Fallback with Strict Artist & Duration Scoring
   const candidates = extractTrackAndArtistCandidates(trackName, artistName);
   const collected: { item: LRCSearchResult; score: number }[] = [];
 
-  for (const cand of candidates) {
-    try {
-      let url = `https://lrclib.net/api/search?track_name=${encodeURIComponent(cand.track)}`;
-      if (cand.artist && cand.artist.trim()) {
-        url += `&artist_name=${encodeURIComponent(cand.artist.trim())}`;
-      }
-      const res = await fetch(url);
-      if (res.ok) {
-        const list: LRCSearchResult[] = await res.json();
-        if (Array.isArray(list) && list.length > 0) {
-          for (const it of list) {
-            const sc = scoreCandidate(it, duration, cand.track, cand.artist || artistName);
-            if (sc > 0) {
-              collected.push({ item: it, score: sc });
+  await Promise.all(
+    candidates.slice(0, 3).map(async (cand) => {
+      try {
+        let url = `https://lrclib.net/api/search?track_name=${encodeURIComponent(cand.track)}`;
+        if (cand.artist && cand.artist.trim()) {
+          url += `&artist_name=${encodeURIComponent(cand.artist.trim())}`;
+        }
+        const res = await fetch(url);
+        if (res.ok) {
+          const list: LRCSearchResult[] = await res.json();
+          if (Array.isArray(list) && list.length > 0) {
+            for (const it of list) {
+              const sc = scoreCandidate(it, duration, cand.track, cand.artist || artistName);
+              if (sc > 0) {
+                collected.push({ item: it, score: sc });
+              }
             }
           }
-          if (collected.some(c => c.score >= 360)) break;
         }
-      }
-    } catch {}
-  }
+      } catch {}
+    })
+  );
 
   if (!collected.some(c => c.item.syncedLyrics) && candidates.length > 0) {
     try {

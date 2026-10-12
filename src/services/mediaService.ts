@@ -80,13 +80,12 @@ export function processRawSessions(
   sessions: WindowsMediaSession[],
   sourceMode: MediaSourceMode = 'auto'
 ): MediaPollResult {
-  // Filter out short social clips / invalid sessions
+  // Filter out invalid sessions
   const valid = sessions.filter(s =>
     s.Title &&
     s.Title.trim() &&
     !s.Title.toLowerCase().includes('instagram') &&
-    !s.Title.toLowerCase().includes('tiktok') &&
-    (s.DurationSeconds > 10 || s.DurationSeconds === 0)
+    !s.Title.toLowerCase().includes('tiktok')
   );
 
   const enriched = valid.map(s => {
@@ -124,19 +123,26 @@ export function processRawSessions(
       src = 'youtube';
     }
 
+    const statusLower = (s.Status || '').toLowerCase();
+    const recentlyUpdated =
+      !!s.ServerTimeMs && !!s.LastUpdatedMs && Math.abs(s.ServerTimeMs - s.LastUpdatedMs) < 3000;
+    const isPlaying =
+      statusLower === 'playing' || statusLower === 'changing' || statusLower === 'opened';
+
     const track: MediaTrack = {
       title: s.Title,
       artist: s.Artist || 'Bilinmeyen Sanatçı',
       album: s.Album || '',
       duration: s.DurationSeconds || 180,
       position: s.PositionSeconds || 0,
-      isPlaying: s.Status.toLowerCase() === 'playing',
+      isPlaying,
       source: src,
     };
 
     return {
       track,
       isCurrent: !!s.IsCurrent,
+      recentlyUpdated,
       lastUpdatedMs: s.LastUpdatedMs || 0,
     };
   });
@@ -154,8 +160,13 @@ export function processRawSessions(
     if (yt.length > 0) candidates = yt;
   }
 
-  // Sort candidates so Playing > IsCurrent > Most Recently Updated wins
+  // Sort candidates so Playing/RecentlySwitched > IsCurrent > Most Recently Updated wins
   const sorted = [...candidates].sort((a, b) => {
+    const aActive = a.track.isPlaying || a.recentlyUpdated;
+    const bActive = b.track.isPlaying || b.recentlyUpdated;
+    if (aActive !== bActive) {
+      return aActive ? -1 : 1;
+    }
     if (a.track.isPlaying !== b.track.isPlaying) {
       return a.track.isPlaying ? -1 : 1;
     }
