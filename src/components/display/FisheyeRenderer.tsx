@@ -161,24 +161,19 @@ export const FisheyeRenderer: React.FC<FisheyeRendererProps> = ({
         background: `radial-gradient(circle at ${50 + mouseOffset.x * 20}% ${50 + mouseOffset.y * 20}%, ${palette.highlight}16 0%, #000000 75%)`,
       }}
     >
-      {/* Ambient Radial Depth Glow in the Background */}
+      {/* Ambient Radial Depth Glow strictly in the Background Layer (z-0) */}
       <div
-        className="pointer-events-none absolute w-[650px] h-[650px] rounded-full blur-[120px] opacity-25"
+        className="pointer-events-none absolute z-0 w-[650px] h-[650px] rounded-full blur-[120px] opacity-25"
         style={{
           backgroundColor: palette.highlight,
           transform: `translate(${mouseOffset.x * 30}px, ${mouseOffset.y * 30}px)`,
         }}
       />
 
-      {/* Seamless, Borderless Fullscreen Fisheye 3D Stage */}
-      <div
-        className="relative w-full max-w-6xl h-full flex items-center justify-center preserve-3d transition-transform duration-75 ease-out pointer-events-none"
-        style={{
-          transform: `perspective(1000px) rotateX(${tiltX}deg) rotateY(${tiltY}deg)`,
-        }}
-      >
-        {/* Vertical Column with Convex Lens Shader Curvature */}
-        <div className="relative w-full h-full flex flex-col items-center justify-center preserve-3d">
+      {/* Seamless, Borderless Fullscreen Fisheye 3D Stage (Isolated z-10 so it never intersects background glow) */}
+      <div className="relative z-10 w-full max-w-6xl h-full flex items-center justify-center pointer-events-none">
+        {/* Vertical Column with Convex Lens Curvature */}
+        <div className="relative w-full h-full flex flex-col items-center justify-center">
           {visibleIndices.map((i) => {
             const unit = units[i];
             const delta = i - smoothIdx;
@@ -200,9 +195,9 @@ export const FisheyeRenderer: React.FC<FisheyeRendererProps> = ({
             return (
               <div
                 key={`unit-${unit.lineIndex}-${unit.startTime}`}
-                className="absolute flex items-center justify-center transition-opacity duration-150 preserve-3d w-full"
+                className="absolute flex items-center justify-center transition-opacity duration-150 w-full"
                 style={{
-                  transform: `translate3d(0px, ${yPixels * 0.92}px, ${zDepth}px) rotateX(${rotX}deg) scale(${unitScale})`,
+                  transform: `perspective(1000px) rotateX(${tiltX}deg) rotateY(${tiltY}deg) translate3d(0px, ${yPixels * 0.92}px, ${zDepth}px) rotateX(${rotX}deg) scale(${unitScale})`,
                   opacity,
                   backfaceVisibility: 'hidden',
                   WebkitFontSmoothing: 'antialiased',

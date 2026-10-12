@@ -150,13 +150,8 @@ export const VisualRenderer: React.FC<VisualRendererProps> = ({
       }}
     >
       {/* 3D Tilting Parallax Plane */}
-      <div
-        className="w-full max-w-6xl h-[640px] flex items-center justify-center transition-transform duration-75 ease-out preserve-3d pointer-events-none"
-        style={{
-          transform: `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg)`,
-        }}
-      >
-        <div className="relative w-full h-full flex flex-col items-center justify-center preserve-3d">
+      <div className="relative z-10 w-full max-w-6xl h-[640px] flex items-center justify-center pointer-events-none">
+        <div className="relative w-full h-full flex flex-col items-center justify-center">
           {visibleIndices.map((i) => {
             const unit = units[i];
             const delta = i - smoothIdx;
@@ -172,9 +167,9 @@ export const VisualRenderer: React.FC<VisualRendererProps> = ({
             return (
               <div
                 key={`unit-${unit.lineIndex}-${unit.startTime}`}
-                className="absolute flex items-center justify-center transition-opacity duration-150 preserve-3d text-center w-full"
+                className="absolute flex items-center justify-center transition-opacity duration-150 text-center w-full"
                 style={{
-                  transform: `translate3d(0px, ${yOffset}px, ${zOffset}px) scale(${scale})`,
+                  transform: `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) translate3d(0px, ${yOffset}px, ${zOffset}px) scale(${scale})`,
                   opacity,
                   backfaceVisibility: 'hidden',
                   WebkitFontSmoothing: 'antialiased',

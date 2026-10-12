@@ -58,7 +58,7 @@ export const LineElement: React.FC<LineElementProps> = ({
 
     if (isActive) {
       return (
-        <div className="inline-flex flex-col items-center justify-center gap-3 px-7 py-4 rounded-3xl bg-white/5 border border-white/15 backdrop-blur-md select-none">
+        <div className="inline-flex flex-col items-center justify-center gap-3 px-7 py-4 rounded-3xl bg-zinc-900/75 border border-white/15 shadow-2xl select-none">
           <div className="flex items-center justify-center gap-3.5">
             <div
               className="w-11 h-11 rounded-2xl flex items-center justify-center border border-white/25 shadow-lg text-white"

@@ -167,13 +167,8 @@ export const ShipRenderer: React.FC<ShipRendererProps> = ({
       }}
     >
       {/* 3D Drifting Wall */}
-      <div
-        className="relative w-full max-w-6xl h-[620px] flex items-center justify-center preserve-3d transition-transform duration-100 ease-out pointer-events-none"
-        style={{
-          transform: `perspective(1200px) rotateX(${baseRotX}deg) rotateY(${baseRotY}deg) rotateZ(2deg) translate3d(${driftOffset.x}px, ${driftOffset.y}px, 0)`,
-        }}
-      >
-        <div className="relative w-full h-full flex flex-col items-center justify-center preserve-3d">
+      <div className="relative z-10 w-full max-w-6xl h-[620px] flex items-center justify-center pointer-events-none">
+        <div className="relative w-full h-full flex flex-col items-center justify-center">
           {visibleIndices.map((i) => {
             const unit = units[i];
             const delta = i - smoothIdx;
@@ -190,9 +185,9 @@ export const ShipRenderer: React.FC<ShipRendererProps> = ({
             return (
               <div
                 key={`unit-${unit.lineIndex}-${unit.startTime}`}
-                className="absolute flex items-center justify-center transition-opacity duration-150 preserve-3d w-full"
+                className="absolute flex items-center justify-center transition-opacity duration-150 w-full"
                 style={{
-                  transform: `translate3d(${xShift}px, ${yOffset}px, ${zOffset}px) scale(${scale})`,
+                  transform: `perspective(1200px) rotateX(${baseRotX}deg) rotateY(${baseRotY}deg) rotateZ(2deg) translate3d(${driftOffset.x + xShift}px, ${driftOffset.y + yOffset}px, ${zOffset}px) scale(${scale})`,
                   opacity,
                   backfaceVisibility: 'hidden',
                   WebkitFontSmoothing: 'antialiased',
