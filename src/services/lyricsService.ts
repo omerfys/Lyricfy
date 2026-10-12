@@ -525,9 +525,10 @@ function scoreCandidate(
     return -999;
   }
 
-  // Reject wildly mismatched durations (> 25s off)
-  if (targetDuration && targetDuration > 15 && item.duration > 15 && durDiff > 25) {
-    return -999;
+  // Reject wildly mismatched durations (> 35s off for unverified artist, > 180s off for verified artist music videos)
+  if (targetDuration && targetDuration > 15 && item.duration > 15) {
+    if (!artistMatched && durDiff > 35) return -999;
+    if (durDiff > 180) return -999;
   }
 
   let score = item.syncedLyrics ? 200 : 20;
@@ -542,7 +543,7 @@ function scoreCandidate(
   else if (durDiff <= 3.0) score += 55;
   else if (durDiff <= 6.0) score += 25;
   else if (durDiff <= 12.0) score += 5;
-  else if (durDiff < 999) score -= durDiff * 3;
+  else if (durDiff < 999) score -= Math.min(65, durDiff * 1.5);
 
   return score;
 }

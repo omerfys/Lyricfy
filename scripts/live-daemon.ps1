@@ -1,4 +1,4 @@
-# High-performance persistent WinRT GSMTC daemon with Edge-Triggered Zero-Latency Timeline
+# High-performance persistent WinRT GSMTC daemon with Zero-Freeze Timeline & Lossless Base64 UTF-8 Pipe
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
@@ -19,10 +19,10 @@ function Await-WinRt($WinRtTask, $ResultType) {
 $mgr = Await-WinRt ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
 
 # Per-session hardware edge-triggered position tracker
-# Prevents 2x speed double-counting while eliminating 4-second Spotify GSMTC freezes
+# Supports both Spotify (periodic 4s GSMTC ticks) and Chromium/YouTube Music (event-only GSMTC ticks on Play/Pause/Seek)
 $sessionTrackers = @{}
+$appLastSessionKey = @{}
 
-# Real-time loop (runs every 60ms)
 while ($true) {
     try {
         $nowOffset = [DateTimeOffset]::UtcNow
@@ -55,19 +55,37 @@ while ($true) {
                 }
 
                 $sessionKey = "$appId|$title|$artist"
+                $isFirstSeenApp = -not $appLastSessionKey.ContainsKey($appId)
+                $isLiveTrackSwitch = (-not $isFirstSeenApp) -and ($appLastSessionKey[$appId] -ne $sessionKey)
+                $appLastSessionKey[$appId] = $sessionKey
 
-                if (-not $sessionTrackers.ContainsKey($sessionKey)) {
-                    # Initial discovery of this track session
+                if ((-not $sessionTrackers.ContainsKey($sessionKey)) -or $isLiveTrackSwitch) {
+                    # Track discovery: distinguish joining an already-playing song on startup vs switching tracks live
                     $initPos = $rawPos
-                    if ($statusStr -eq 'Playing' -and $timeline.LastUpdatedTime -and $timeline.LastUpdatedTime.Year -gt 2020) {
-                        $initAge = ($nowOffset - $timeline.LastUpdatedTime).TotalSeconds
-                        # Only add initial age if it's a recent Spotify snapshot (< 6s)
-                        if ($initAge -ge 0 -and $initAge -le 6.0) {
+                    $initAge = if ($timeline.LastUpdatedTime -and $timeline.LastUpdatedTime.Year -gt 2020) {
+                        ($nowOffset - $timeline.LastUpdatedTime).TotalSeconds
+                    } else {
+                        999999
+                    }
+
+                    if ($isLiveTrackSwitch) {
+                        # Track just switched live while daemon is running (<60ms ago).
+                        # If LastUpdatedTime is older than 1.5s, timeline still holds the previous song's stale state!
+                        if ($initAge -le 1.5 -and $rawPos -ge 0 -and $rawPos -lt 10.0) {
+                            $initPos = $rawPos + [Math]::Max(0, $initAge)
+                        } else {
+                            $initPos = 0.0
+                        }
+                    } else {
+                        # Daemon just started while song was already playing mid-track: reconstruct true elapsed position
+                        if ($statusStr -eq 'Playing' -and $initAge -ge 0 -and ($durSec -le 0 -or ($rawPos + $initAge) -le ($durSec + 10.0))) {
                             $initPos = $rawPos + $initAge
                         }
                     }
+
                     $sessionTrackers[$sessionKey] = @{
                         LastRawPos = $rawPos
+                        LastUpdMs = $lastUpdMs
                         AnchorPos = $initPos
                         AnchorTime = $nowOffset
                         LastStatus = $statusStr
@@ -75,26 +93,46 @@ while ($true) {
                 }
 
                 $tracker = $sessionTrackers[$sessionKey]
+                $rawPosChanged = ([Math]::Abs($rawPos - $tracker.LastRawPos) -gt 0.001)
+                $updTimeChanged = ($lastUpdMs -gt 0 -and $lastUpdMs -ne $tracker.LastUpdMs)
 
-                if ([Math]::Abs($rawPos - $tracker.LastRawPos) -gt 0.001) {
-                    # Hardware position just updated! Lock directly onto the new exact position
+                if ($rawPosChanged -or $updTimeChanged) {
+                    # Hardware position or seek timestamp updated!
+                    $newAnchorPos = $rawPos
+                    if ($statusStr -eq 'Playing' -and $timeline.LastUpdatedTime -and $timeline.LastUpdatedTime.Year -gt 2020) {
+                        $tickAge = ($nowOffset - $timeline.LastUpdatedTime).TotalSeconds
+                        if ($tickAge -ge 0 -and $tickAge -le 3.0) {
+                            $newAnchorPos = $rawPos + $tickAge
+                        }
+                    }
                     $tracker.LastRawPos = $rawPos
-                    $tracker.AnchorPos = $rawPos
+                    $tracker.LastUpdMs = $lastUpdMs
+                    $tracker.AnchorPos = $newAnchorPos
                     $tracker.AnchorTime = $nowOffset
                     $tracker.LastStatus = $statusStr
-                    $posSec = $rawPos
+                    $posSec = $newAnchorPos
                 } elseif ($statusStr -ne $tracker.LastStatus) {
                     # Play/Pause state changed without position change
+                    if ($statusStr -eq 'Playing') {
+                        # Resumed from pause
+                        $tracker.AnchorTime = $nowOffset
+                    } else {
+                        # Paused: freeze AnchorPos at the exact moment of pause
+                        $elapsedBeforePause = ($nowOffset - $tracker.AnchorTime).TotalSeconds
+                        if ($elapsedBeforePause -ge 0) {
+                            $tracker.AnchorPos = $tracker.AnchorPos + $elapsedBeforePause
+                        }
+                        $tracker.AnchorTime = $nowOffset
+                    }
                     $tracker.LastStatus = $statusStr
-                    $tracker.AnchorTime = $nowOffset
                     $posSec = $tracker.AnchorPos
                 } elseif ($statusStr -eq 'Playing') {
-                    # Smooth 1.0x real-time advancement while waiting for next GSMTC position tick
+                    # Continuous 1.0x real-time advancement (never freezes after 8s in YouTube Music!)
                     $elapsedSinceAnchor = ($nowOffset - $tracker.AnchorTime).TotalSeconds
-                    if ($elapsedSinceAnchor -ge 0 -and $elapsedSinceAnchor -le 8.0) {
+                    if ($elapsedSinceAnchor -ge 0) {
                         $posSec = $tracker.AnchorPos + $elapsedSinceAnchor
                     } else {
-                        $posSec = $rawPos
+                        $posSec = $tracker.AnchorPos
                     }
                 } else {
                     # Paused or Stopped
@@ -105,13 +143,13 @@ while ($true) {
                     $posSec = $durSec
                 }
 
-                $detectedSource = "other"
+                $detectedSource = "youtube"
                 $appLower = "$appId".ToLower()
                 $combined = "$appId $album $artist $title".ToLower()
 
                 if ($appLower -match 'spotify' -or $combined -match 'spotify') {
                     $detectedSource = "spotify"
-                } elseif ($combined -match 'youtube' -or $appLower -match 'chrome|msedge|firefox|opera|brave|vivaldi') {
+                } elseif ($combined -match 'youtube|yt music' -or $appLower -match 'chrome|msedge|firefox|opera|brave|vivaldi|dia|thebrowsercompany|arc|zen|waterfox|floorp|yandex|whale|thorium|chromium|librewolf') {
                     $detectedSource = "youtube"
                 }
 
@@ -139,12 +177,14 @@ while ($true) {
             } else {
                 $json = $output | ConvertTo-Json -Compress
             }
-            [Console]::Out.WriteLine($json)
-            [Console]::Out.Flush()
         } else {
-            [Console]::Out.WriteLine('[]')
-            [Console]::Out.Flush()
+            $json = "[]"
         }
+
+        # Lossless Base64 UTF-8 transport so Turkish characters (ğ, ü, ş, ı, ö, ç, İ) never corrupt over headless pipes
+        $b64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($json))
+        [Console]::Out.WriteLine("B64:$b64")
+        [Console]::Out.Flush()
     } catch {
         # ignore loop error
     }

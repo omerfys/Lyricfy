@@ -65,6 +65,7 @@ export function App() {
   const [offsetMs, setOffsetMs] = useState(0);
 
   const lastLiveSignatureRef = useRef<string>('');
+  const lastLiveDurationRef = useRef<number>(0);
 
   // UI States
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -111,10 +112,15 @@ export function App() {
 
       const signature = `${active.title}__${active.artist}`;
       const isTrackChanged = signature !== lastLiveSignatureRef.current;
+      const isDurationUpdated =
+        !isTrackChanged &&
+        active.duration > 15 &&
+        Math.abs(active.duration - lastLiveDurationRef.current) > 4;
 
       // If track changed, fetch fresh lyrics and cover art immediately
       if (isTrackChanged) {
         lastLiveSignatureRef.current = signature;
+        lastLiveDurationRef.current = active.duration;
 
         // Reset lyrics immediately to loading state so previous song doesn't linger
         setCurrentLrcText(`[00:00.00] ${active.title}\n[00:02.00] ${active.artist}\n[00:04.00] (Sözler yükleniyor...)`);
@@ -150,6 +156,18 @@ export function App() {
           }
         });
       } else {
+        if (isDurationUpdated) {
+          lastLiveDurationRef.current = active.duration;
+          fetchLyricsFromLRCLIB(active.title, active.artist, active.duration).then(lyrics => {
+            if (isMounted && lastLiveSignatureRef.current === signature) {
+              if (lyrics && lyrics.syncedLyrics) {
+                setCurrentLrcText(lyrics.syncedLyrics);
+              } else if (lyrics && lyrics.plainLyrics) {
+                setCurrentLrcText(formatPlainLyricsProportionally(lyrics.plainLyrics, active.duration));
+              }
+            }
+          });
+        }
         setTrack(prev => ({
           ...prev,
           title: active.title,

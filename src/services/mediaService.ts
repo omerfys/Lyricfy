@@ -86,7 +86,7 @@ export function processRawSessions(
     s.Title.trim() &&
     !s.Title.toLowerCase().includes('instagram') &&
     !s.Title.toLowerCase().includes('tiktok') &&
-    s.DurationSeconds > 10
+    (s.DurationSeconds > 10 || s.DurationSeconds === 0)
   );
 
   const enriched = valid.map(s => {
@@ -104,7 +104,22 @@ export function processRawSessions(
       lowerArtist.includes('youtube') ||
       lowerApp.includes('youtube') ||
       lowerApp.includes('chrome') ||
-      lowerApp.includes('msedge')
+      lowerApp.includes('msedge') ||
+      lowerApp.includes('firefox') ||
+      lowerApp.includes('opera') ||
+      lowerApp.includes('brave') ||
+      lowerApp.includes('vivaldi') ||
+      lowerApp.includes('dia') ||
+      lowerApp.includes('thebrowsercompany') ||
+      lowerApp.includes('arc') ||
+      lowerApp.includes('zen') ||
+      lowerApp.includes('waterfox') ||
+      lowerApp.includes('floorp') ||
+      lowerApp.includes('yandex') ||
+      lowerApp.includes('whale') ||
+      lowerApp.includes('thorium') ||
+      lowerApp.includes('chromium') ||
+      lowerApp.includes('librewolf')
     ) {
       src = 'youtube';
     }
