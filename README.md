@@ -24,6 +24,13 @@
 
 [Başlangıç](#hızlı-başlangıç--kurulum) • [Özellikler](#özellikler-features) • [Hibrit Senkronizasyon](#spotify--youtube-music-hibrit-senkronizasyon-motoru) • [Mimari](#mimari--çalışma-prensibi) • [Otomatik Renk Teması](#albüm-kapağı-otomatik-renk-senkronu-auto-sync) • [English Overview](#english-overview)
 
+<br>
+
+<div align="center">
+  <img src="docs/assets/lyricfyspoi1.gif" width="94%" alt="Lyricfy 3D Kinetic Typography & Fisheye Sticker Demo" style="border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);" />
+  <p align="center"><em>▲ Kelime bazlı (word-by-word) renkli çıkartma rozetleri, 3D Fisheye küresel optik lens ve canlı senkron sahnesi</em></p>
+</div>
+
 ---
 
 </div>
@@ -134,6 +141,11 @@ Lyricfy, her şarkının atmosferine uyum sağlayan dinamik bir renk motoruna sa
 ---
 
 ## 3 Boyutlu Görsel Sahneler & Şeffaf Masaüstü Modu
+
+<div align="center">
+  <img src="docs/assets/lyricfyspoi2.gif" width="94%" alt="Lyricfy 3D Drifting Wall & Contextual Emoji Demo" style="border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);" />
+  <p align="center"><em>▲ 3D izometrik süzülen söz sahnesi, Türkçe kök analizi ("ağacıyım" -> 🌲) ve 3D hareketli emoji entegrasyonu</em></p>
+</div>
 
 - **Optik Merkezli Vektörel Nota İkonları:** Enstrümantal geçişlerde ve söz aralarında font kaymalarını önleyen, optik olarak tam merkezlenmiş özel SVG müzik notası ikonları.
 - **Uzun Kelime Dinamik Ölçekleme:** Çok uzun veya tekrarlı kelimelerde (`AMATÖR-TÖR-TÖR...` vb.) otomatik font küçültme ve eğim açısı dengeleme.
