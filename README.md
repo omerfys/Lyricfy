@@ -24,13 +24,6 @@
 
 [Başlangıç](#hızlı-başlangıç--kurulum) • [Özellikler](#özellikler-features) • [Hibrit Senkronizasyon](#spotify--youtube-music-hibrit-senkronizasyon-motoru) • [Mimari](#mimari--çalışma-prensibi) • [Otomatik Renk Teması](#albüm-kapağı-otomatik-renk-senkronu-auto-sync) • [English Overview](#english-overview)
 
-<br>
-
-<div align="center">
-  <img src="docs/assets/1-hero-kinetic-lyrics.gif?v=1" width="94%" alt="Lyricfy 3D Kinetic Typography & Fisheye Lyrics Demo" style="border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);" />
-  <p align="center"><em>▲ Kelime bazlı (word-by-word) renkli çıkartma rozetleri, 3D Fisheye küresel optik lens ve bağlamsal emoji sahnesi</em></p>
-</div>
-
 ---
 
 </div>
@@ -95,11 +88,6 @@ Standart müzik çalarların şarkı sözü ekranları düz bir metin listesinde
 
 YouTube Music veya YouTube üzerinde bir şarkı dinlerken video klibin başında yer alan 10-20 saniyelik sinematik girişler standart şarkı sözü uygulamalarında senkron kaymasına yol açar. Lyricfy bu sorunu hibrit bir mimariyle çözer:
 
-<div align="center">
-  <img src="docs/assets/2-spotify-ytmusic-sync.gif?v=1" width="94%" alt="Lyricfy Spotify & YouTube Music Hybrid Sync Demo" style="border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);" />
-  <p align="center"><em>▲ HUD üzerinden anlık kaynak geçişi (Oto / Spotify / YT Music) ve YouTube TimedText transkript çapraz zaman hizalaması</em></p>
-</div>
-
 1. **Canlı Medya Yakalama:** Arka plandaki `media-bridge` servisi Windows GSMTC oturumlarını ve tarayıcı süreçlerini dinleyerek çalan parçanın adını, sanatçısını ve milisaniyelik pozisyonunu yakalar.
 2. **Çift Kanallı Söz ve Altyazı Çekimi:** Uygulama aynı anda hem LRCLIB veritabanından stüdyo sözlerini hem de YouTube videosunun içindeki `captionTracks (json3)` zamanlı transkript segmentlerini indirir.
 3. **Otomatik İntro/Offset Dengeleme (`alignLrcWithYouTubeEvents`):** Stüdyo LRC satırları ile YouTube altyazı segmentleri arasındaki kelime benzerliği karşılaştırılır, medyan zaman farkı hesaplanır ve tüm söz zamanlamaları klip akışına otomatik olarak hizalanır.
@@ -134,11 +122,6 @@ flowchart TD
 
 Lyricfy, her şarkının atmosferine uyum sağlayan dinamik bir renk motoruna sahiptir:
 
-<div align="center">
-  <img src="docs/assets/3-album-theme-autosync.gif?v=1" width="94%" alt="Lyricfy Album Cover Auto-Sync Theme Demo" style="border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);" />
-  <p align="center"><em>▲ Çalan şarkının albüm kapağından gerçek zamanlı baskın renk çıkarımı ve aktif çıkartma/glow senkronizasyonu</em></p>
-</div>
-
 - **Canlı Piksel & Doygunluk Analizi:** Şarkı değiştiği anda albüm kapağı HTML5 Canvas üzerinde taranır; çok karanlık ve aşırı soluk pikseller elenerek en yüksek doygunluğa sahip vurgu rengi (`#RRGGBB`) tespit edilir.
 - **Hazır İmza Temalar:** Otomatik senkronun yanı sıra tek tıkla seçilebilen 5 özel tema:
   - **Verci Original:** Koyu Kırmızı & Neon Pembe (`#ff0055`)
@@ -151,11 +134,6 @@ Lyricfy, her şarkının atmosferine uyum sağlayan dinamik bir renk motoruna sa
 ---
 
 ## 3 Boyutlu Görsel Sahneler & Şeffaf Masaüstü Modu
-
-<div align="center">
-  <img src="docs/assets/4-hud-and-visual-modes.gif?v=1" width="94%" alt="Lyricfy Visual Modes & Transparent Overlay Demo" style="border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);" />
-  <p align="center"><em>▲ Odak Küresi (Fisheye), Büyük Boy (Ship) ve Sol Tık Sürükle-Gezin destekli Şeffaf Masaüstü Overlay modu</em></p>
-</div>
 
 - **Optik Merkezli Vektörel Nota İkonları:** Enstrümantal geçişlerde ve söz aralarında font kaymalarını önleyen, optik olarak tam merkezlenmiş özel SVG müzik notası ikonları.
 - **Uzun Kelime Dinamik Ölçekleme:** Çok uzun veya tekrarlı kelimelerde (`AMATÖR-TÖR-TÖR...` vb.) otomatik font küçültme ve eğim açısı dengeleme.
