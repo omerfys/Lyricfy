@@ -11,7 +11,7 @@ $asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-O
 function Await-WinRt($WinRtTask, $ResultType) {
     $asTask = $asTaskGeneric.MakeGenericMethod($ResultType)
     $netTask = $asTask.Invoke($null, @($WinRtTask))
-    $netTask.Wait(-1) | Out-Null
+    if (-not $netTask.Wait(150)) { return $null }
     return $netTask.Result
 }
 
@@ -19,9 +19,10 @@ function Await-WinRt($WinRtTask, $ResultType) {
 [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties, Windows.Media.Control, ContentType = WindowsRuntime] | Out-Null
 $mgr = Await-WinRt ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
 
-# Per-session hardware edge-triggered position tracker
+# Per-session hardware edge-triggered position tracker & metadata cache
 # Supports both Spotify (periodic 4s GSMTC ticks) and Chromium/YouTube Music (event-only GSMTC ticks on Play/Pause/Seek)
 $sessionTrackers = @{}
+$mediaCache = @{}
 $isInitialBoot = $true
 $loopTick = 0
 
@@ -35,20 +36,18 @@ while ($true) {
         $currentAppId = if ($currentSession) { $currentSession.SourceAppUserModelId } else { "" }
 
         $output = @()
+        $sessionIdx = 0
 
         foreach ($s in $sessions) {
+            $sessionIdx++
             try {
-                $media = Await-WinRt ($s.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
-                $timeline = $s.GetTimelineProperties()
+                # 1. Read synchronous PlaybackInfo & TimelineProperties FIRST (0ms in-memory WinRT calls)
+                # This ensures Pause/Stop transitions are detected instantaneously without waiting on COM IPC
                 $playback = $s.GetPlaybackInfo()
-
-                $title = $media.Title
-                if (-not $title) { continue }
-                $artist = $media.Artist
-                $album = $media.AlbumTitle
+                $timeline = $s.GetTimelineProperties()
                 $appId = if ($s.SourceAppUserModelId) { $s.SourceAppUserModelId } else { "unknown" }
 
-                $statusStr = $playback.PlaybackStatus.ToString()
+                $statusStr = if ($playback -and $playback.PlaybackStatus) { $playback.PlaybackStatus.ToString() } else { "Paused" }
                 $rawPos = $timeline.Position.TotalSeconds
                 $durSec = $timeline.EndTime.TotalSeconds
                 $lastUpdMs = if ($timeline.LastUpdatedTime -and $timeline.LastUpdatedTime.Year -gt 2020) {
@@ -56,6 +55,52 @@ while ($true) {
                 } else {
                     0
                 }
+
+                # 2. Smart Media Properties Cache: never block a Playing -> Paused transition on async COM IPC
+                $slotKey = "$sessionIdx|$appId"
+                $cached = $mediaCache[$slotKey]
+                $needMediaRefresh = $false
+
+                if (-not $cached) {
+                    $needMediaRefresh = $true
+                } elseif ($statusStr -eq 'Playing') {
+                    if (($durSec -ne $cached.LastDurSec) -or ($lastUpdMs -ne $cached.LastUpdMs) -or ($statusStr -ne $cached.LastStatus) -or (($loopTick - $cached.LastFetchTick) -ge 6)) {
+                        $needMediaRefresh = $true
+                    }
+                } else {
+                    # While Paused/Stopped, skip COM IPC on the exact transition frame so pause emits in <1ms!
+                    if (($statusStr -eq $cached.LastStatus) -and (($loopTick - $cached.LastFetchTick) -ge 20)) {
+                        $needMediaRefresh = $true
+                    }
+                }
+
+                if ($needMediaRefresh) {
+                    $media = Await-WinRt ($s.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
+                    if ($media -and $media.Title) {
+                        $cached = @{
+                            Title = $media.Title
+                            Artist = $media.Artist
+                            Album = $media.AlbumTitle
+                            LastDurSec = $durSec
+                            LastUpdMs = $lastUpdMs
+                            LastStatus = $statusStr
+                            LastFetchTick = $loopTick
+                        }
+                        $mediaCache[$slotKey] = $cached
+                    }
+                    # Re-read synchronous PlaybackInfo right after async COM call in case user paused during IPC
+                    $playbackAfter = $s.GetPlaybackInfo()
+                    if ($playbackAfter -and $playbackAfter.PlaybackStatus) {
+                        $statusStr = $playbackAfter.PlaybackStatus.ToString()
+                    }
+                } elseif ($cached) {
+                    $cached.LastStatus = $statusStr
+                }
+
+                if (-not $cached -or -not $cached.Title) { continue }
+                $title = $cached.Title
+                $artist = $cached.Artist
+                $album = $cached.Album
 
                 $sessionKey = "$appId|$title|$artist"
                 $isNewOrReturnedTrack = (-not $sessionTrackers.ContainsKey($sessionKey)) -or (($loopTick - $sessionTrackers[$sessionKey].LastSeenTick) -gt 4)
@@ -72,7 +117,7 @@ while ($true) {
                         # Track just switched live while daemon is running!
                         # If LastUpdatedTime is older than 1.5s, timeline still holds the previous song's stale state!
                         if ($initAge -le 1.5 -and $rawPos -ge 0 -and $rawPos -lt 10.0) {
-                            $initPos = $rawPos + [Math]::Max(0, $initAge)
+                            $initPos = if ($statusStr -eq 'Playing') { $rawPos + [Math]::Max(0, $initAge) } else { $rawPos }
                         } else {
                             $initPos = 0.0
                         }
@@ -99,35 +144,48 @@ while ($true) {
                 $rawPosChanged = ([Math]::Abs($rawPos - $tracker.LastRawPos) -gt 0.001)
                 $updTimeChanged = ($lastUpdMs -gt 0 -and $lastUpdMs -ne $tracker.LastUpdMs)
 
-                if ($rawPosChanged -or $updTimeChanged) {
-                    # Hardware position or seek timestamp updated!
-                    $newAnchorPos = $rawPos
-                    if ($statusStr -eq 'Playing' -and $timeline.LastUpdatedTime -and $timeline.LastUpdatedTime.Year -gt 2020) {
-                        $tickAge = ($nowOffset - $timeline.LastUpdatedTime).TotalSeconds
-                        if ($tickAge -ge 0 -and $tickAge -le 3.0) {
-                            $newAnchorPos = $rawPos + $tickAge
+                # Prioritize Play/Pause status transitions FIRST so pausing in Chromium/Spotify freezes immediately
+                if ($statusStr -ne $tracker.LastStatus) {
+                    if ($statusStr -eq 'Playing') {
+                        # Resumed from pause
+                        if ($rawPosChanged -and $rawPos -gt 0) {
+                            $tracker.AnchorPos = $rawPos
                         }
+                        $tracker.AnchorTime = $nowOffset
+                    } else {
+                        # Paused or Stopped: freeze AnchorPos at the exact moment of pause
+                        $elapsedBeforePause = [Math]::Max(0, ($nowOffset - $tracker.AnchorTime).TotalSeconds)
+                        $frozenPos = $tracker.AnchorPos + $elapsedBeforePause
+                        if ($rawPosChanged -and $rawPos -gt 0 -and ([Math]::Abs($rawPos - $frozenPos) -lt 1.5)) {
+                            $tracker.AnchorPos = $rawPos
+                        } else {
+                            $tracker.AnchorPos = $frozenPos
+                        }
+                        $tracker.AnchorTime = $nowOffset
                     }
                     $tracker.LastRawPos = $rawPos
                     $tracker.LastUpdMs = $lastUpdMs
-                    $tracker.AnchorPos = $newAnchorPos
-                    $tracker.AnchorTime = $nowOffset
                     $tracker.LastStatus = $statusStr
-                    $posSec = $newAnchorPos
-                } elseif ($statusStr -ne $tracker.LastStatus) {
-                    # Play/Pause state changed without position change
+                    $posSec = $tracker.AnchorPos
+                } elseif ($rawPosChanged -or $updTimeChanged) {
                     if ($statusStr -eq 'Playing') {
-                        # Resumed from pause
-                        $tracker.AnchorTime = $nowOffset
-                    } else {
-                        # Paused: freeze AnchorPos at the exact moment of pause
-                        $elapsedBeforePause = ($nowOffset - $tracker.AnchorTime).TotalSeconds
-                        if ($elapsedBeforePause -ge 0) {
-                            $tracker.AnchorPos = $tracker.AnchorPos + $elapsedBeforePause
+                        # Hardware position or seek timestamp updated while playing
+                        $newAnchorPos = $rawPos
+                        if ($timeline.LastUpdatedTime -and $timeline.LastUpdatedTime.Year -gt 2020) {
+                            $tickAge = ($nowOffset - $timeline.LastUpdatedTime).TotalSeconds
+                            if ($tickAge -ge 0 -and $tickAge -le 3.0) {
+                                $newAnchorPos = $rawPos + $tickAge
+                            }
                         }
+                        $tracker.AnchorPos = $newAnchorPos
+                        $tracker.AnchorTime = $nowOffset
+                    } elseif ($rawPosChanged) {
+                        # User scrubbed seekbar while paused
+                        $tracker.AnchorPos = $rawPos
                         $tracker.AnchorTime = $nowOffset
                     }
-                    $tracker.LastStatus = $statusStr
+                    $tracker.LastRawPos = $rawPos
+                    $tracker.LastUpdMs = $lastUpdMs
                     $posSec = $tracker.AnchorPos
                 } elseif ($statusStr -eq 'Playing') {
                     # Continuous 1.0x real-time advancement (never freezes after 8s in YouTube Music!)
@@ -158,7 +216,6 @@ while ($true) {
 
                 $isCurrentSession = [bool]($currentAppId -and ($appId -eq $currentAppId))
                 $effectiveLastUpdMs = [Math]::Max($lastUpdMs, $tracker.TrackSwitchedAtMs)
-                $effectiveStatus = if ($statusStr -in @('Changing', 'Opened')) { 'Playing' } else { $statusStr }
 
                 $output += [PSCustomObject]@{
                     AppId = $appId
@@ -166,7 +223,7 @@ while ($true) {
                     Artist = $artist
                     Album = $album
                     Source = $detectedSource
-                    Status = $effectiveStatus
+                    Status = $statusStr
                     PositionSeconds = [Math]::Round($posSec, 3)
                     DurationSeconds = $durSec
                     IsCurrent = $isCurrentSession

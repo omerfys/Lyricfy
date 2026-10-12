@@ -126,8 +126,7 @@ export function processRawSessions(
     const statusLower = (s.Status || '').toLowerCase();
     const recentlyUpdated =
       !!s.ServerTimeMs && !!s.LastUpdatedMs && Math.abs(s.ServerTimeMs - s.LastUpdatedMs) < 3000;
-    const isPlaying =
-      statusLower === 'playing' || statusLower === 'changing' || statusLower === 'opened';
+    const isPlaying = statusLower === 'playing';
 
     const track: MediaTrack = {
       title: s.Title,
@@ -160,15 +159,13 @@ export function processRawSessions(
     if (yt.length > 0) candidates = yt;
   }
 
-  // Sort candidates so Playing/RecentlySwitched > IsCurrent > Most Recently Updated wins
+  // Sort candidates so Playing > RecentlySwitched > IsCurrent > Most Recently Updated wins
   const sorted = [...candidates].sort((a, b) => {
-    const aActive = a.track.isPlaying || a.recentlyUpdated;
-    const bActive = b.track.isPlaying || b.recentlyUpdated;
-    if (aActive !== bActive) {
-      return aActive ? -1 : 1;
-    }
     if (a.track.isPlaying !== b.track.isPlaying) {
       return a.track.isPlaying ? -1 : 1;
+    }
+    if (a.recentlyUpdated !== b.recentlyUpdated) {
+      return a.recentlyUpdated ? -1 : 1;
     }
     if (a.isCurrent !== b.isCurrent) {
       return a.isCurrent ? -1 : 1;

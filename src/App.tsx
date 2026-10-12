@@ -108,7 +108,20 @@ export function App() {
       if (!isMounted) return;
 
       const active = result.activeTrack;
-      if (!active) return;
+      if (!active) {
+        if (isPlayingRef.current) {
+          const nowPerf = performance.now();
+          const frozenTime =
+            playbackBaseTimeRef.current + (nowPerf - playbackStartTimestampRef.current) / 1000;
+          playbackBaseTimeRef.current = frozenTime;
+          playbackStartTimestampRef.current = nowPerf;
+          isPlayingRef.current = false;
+          setIsPlaying(false);
+          setCurrentTime(frozenTime);
+          setTrack(prev => (prev.isPlaying ? { ...prev, isPlaying: false } : prev));
+        }
+        return;
+      }
 
       const signature = `${active.title}__${active.artist}`;
       const isTrackChanged = signature !== lastLiveSignatureRef.current;
@@ -197,8 +210,36 @@ export function App() {
       const drift = active.position - localEstimatedTime;
       const playStateChanged = active.isPlaying !== isPlayingRef.current;
 
-      if (isTrackChanged || playStateChanged || !active.isPlaying || Math.abs(drift) > 0.18) {
-        // Instant snap on track change, play/pause, or seek (> 180ms jump)
+      // Update ref synchronously BEFORE anything else so 60fps rAF loop halts in 0ms on pause
+      isPlayingRef.current = active.isPlaying;
+      setIsPlaying(active.isPlaying);
+
+      if (isTrackChanged) {
+        playbackBaseTimeRef.current = active.position;
+        playbackStartTimestampRef.current = nowPerf;
+        setCurrentTime(active.position);
+      } else if (!active.isPlaying) {
+        if (playStateChanged) {
+          // User just paused: freeze on the exact frame currently displayed without jumping a word forward!
+          const frozenTime = Math.abs(drift) > 1.2 ? active.position : localEstimatedTime;
+          playbackBaseTimeRef.current = frozenTime;
+          playbackStartTimestampRef.current = nowPerf;
+          setCurrentTime(frozenTime);
+        } else if (Math.abs(active.position - playbackBaseTimeRef.current) > 0.5) {
+          // User scrubbed seekbar while paused
+          playbackBaseTimeRef.current = active.position;
+          playbackStartTimestampRef.current = nowPerf;
+          setCurrentTime(active.position);
+        }
+      } else if (playStateChanged) {
+        // User just resumed from pause
+        if (Math.abs(active.position - playbackBaseTimeRef.current) > 0.35) {
+          playbackBaseTimeRef.current = active.position;
+          setCurrentTime(active.position);
+        }
+        playbackStartTimestampRef.current = nowPerf;
+      } else if (Math.abs(drift) > 0.18) {
+        // User seeked while playing (> 180ms jump)
         playbackBaseTimeRef.current = active.position;
         playbackStartTimestampRef.current = nowPerf;
         setCurrentTime(active.position);
@@ -206,9 +247,6 @@ export function App() {
         // Fast PLL phase lock (corrects 45% of drift with zero visual stutter)
         playbackBaseTimeRef.current += drift * 0.45;
       }
-
-      isPlayingRef.current = active.isPlaying;
-      setIsPlaying(active.isPlaying);
     };
 
     // 1. Initial immediate poll
@@ -233,7 +271,7 @@ export function App() {
   // High-precision 60fps/120fps Sub-second Timeline Interpolator
   useEffect(() => {
     const loop = () => {
-      if (isPlaying) {
+      if (isPlayingRef.current) {
         const elapsed = (performance.now() - playbackStartTimestampRef.current) / 1000;
         const newTime = playbackBaseTimeRef.current + elapsed;
         setCurrentTime(Math.min(track.duration || 9999, Math.max(0, newTime)));
