@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Production & Packaging Builds
+dist/
+dist-ssr/
+release/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# OS & Editor Files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Environment & Cache
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.eslintcache
+.vite/
