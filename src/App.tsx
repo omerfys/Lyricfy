@@ -21,8 +21,8 @@ export function App() {
   // Display style
   const [styleMode, setStyleMode] = useState<DisplayStyle>('fisheye-visual');
 
-  // Lyric sync & granularity mode (defaults to 'line' = 100% exact LRC line sync + live word highlight)
-  const [syncMode, setSyncMode] = useState<SyncMode>('line');
+  // Lyric sync & granularity mode (defaults to 'word' = Tek Kelime kinetic pop mode)
+  const [syncMode, setSyncMode] = useState<SyncMode>('word');
 
   // Source selection mode (Auto, Spotify, YouTube Music)
   const [sourceMode, setSourceMode] = useState<MediaSourceMode>('auto');
