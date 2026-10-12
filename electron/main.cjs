@@ -853,74 +853,90 @@ async function fetchLyricsBackend(trackName, artistName, duration, wantYoutubeSy
   const candidates = getCandidates(trackName, artistName);
   const collected = [];
 
-  // 1 & 2. Fire primary /api/get and /api/search queries in PARALLEL for ~250ms single-roundtrip lookup!
-  const lrcTasks = [];
+  // Fire /api/get, /api/search?track_name, and /api/search?q simultaneously at t=0ms,
+  // and resolve IMMEDIATELY the moment any query returns a verified synced match (score >= 310)!
+  await new Promise((resolveRace) => {
+    let resolved = false;
+    const done = () => {
+      if (!resolved) {
+        resolved = true;
+        resolveRace();
+      }
+    };
 
-  for (const cand of candidates.slice(0, 3)) {
-    if (cand.track && cand.artist) {
-      lrcTasks.push(
-        (async () => {
-          try {
-            let getUrl = `https://lrclib.net/api/get?track_name=${encodeURIComponent(cand.track)}&artist_name=${encodeURIComponent(cand.artist)}`;
-            if (duration && duration > 15) {
-              getUrl += `&duration=${Math.round(duration)}`;
-            }
-            const item = await fetchJsonWithRetry(getUrl, 0);
-            if (item && (item.syncedLyrics || item.plainLyrics)) {
-              const sc = scoreLrcItem(item, duration, cand.track, cand.artist || artistName);
-              if (sc > 0) {
-                collected.push({ item, score: sc + 20 });
+    const tasks = [];
+
+    for (const cand of candidates.slice(0, 2)) {
+      if (cand.track && cand.artist) {
+        tasks.push(
+          (async () => {
+            try {
+              let getUrl = `https://lrclib.net/api/get?track_name=${encodeURIComponent(cand.track)}&artist_name=${encodeURIComponent(cand.artist)}`;
+              if (duration && duration > 15) {
+                getUrl += `&duration=${Math.round(duration)}`;
               }
-            }
-          } catch {}
-        })()
-      );
-    }
-
-    if (cand.track) {
-      lrcTasks.push(
-        (async () => {
-          try {
-            let searchUrl = `https://lrclib.net/api/search?track_name=${encodeURIComponent(cand.track)}`;
-            if (cand.artist && cand.artist.trim()) {
-              searchUrl += `&artist_name=${encodeURIComponent(cand.artist.trim())}`;
-            }
-            const list = await fetchJsonWithRetry(searchUrl, 1);
-            if (Array.isArray(list) && list.length > 0) {
-              for (const it of list) {
-                const sc = scoreLrcItem(it, duration, cand.track, cand.artist || artistName);
+              const item = await fetchJsonWithRetry(getUrl, 0);
+              if (item && (item.syncedLyrics || item.plainLyrics)) {
+                const sc = scoreLrcItem(item, duration, cand.track, cand.artist || artistName);
                 if (sc > 0) {
-                  collected.push({ item: it, score: sc });
+                  collected.push({ item, score: sc + 20 });
+                  if (item.syncedLyrics && sc >= 300) done();
                 }
               }
-            }
-          } catch {}
-        })()
-      );
-    }
-  }
+            } catch {}
+          })()
+        );
+      }
 
-  await Promise.all(lrcTasks);
-
-  // 3. Fallback full-text /api/search?q=... in parallel only if still no synced lyrics
-  if (!collected.some(c => c.item.syncedLyrics)) {
-    await Promise.all(
-      candidates.slice(0, 2).map(async (cand) => {
-        try {
-          const q = `${cand.track} ${cand.artist}`.trim();
-          const items = await fetchJsonWithRetry(`https://lrclib.net/api/search?q=${encodeURIComponent(q)}`, 1);
-          if (Array.isArray(items)) {
-            for (const it of items) {
-              const sc = scoreLrcItem(it, duration, cand.track, cand.artist || artistName);
-              if (sc > 0) {
-                collected.push({ item: it, score: sc });
+      if (cand.track) {
+        tasks.push(
+          (async () => {
+            try {
+              let searchUrl = `https://lrclib.net/api/search?track_name=${encodeURIComponent(cand.track)}`;
+              if (cand.artist && cand.artist.trim()) {
+                searchUrl += `&artist_name=${encodeURIComponent(cand.artist.trim())}`;
               }
-            }
-          }
-        } catch {}
-      })
-    );
-  }
+              const list = await fetchJsonWithRetry(searchUrl, 0);
+              if (Array.isArray(list) && list.length > 0) {
+                for (const it of list) {
+                  const sc = scoreLrcItem(it, duration, cand.track, cand.artist || artistName);
+                  if (sc > 0) {
+                    collected.push({ item: it, score: sc });
+                  }
+                }
+                if (collected.some(c => c.item.syncedLyrics && c.score >= 310)) done();
+              }
+            } catch {}
+          })()
+        );
+      }
+    }
+
+    if (candidates.length > 0) {
+      const firstCand = candidates[0];
+      const q = `${firstCand.track} ${firstCand.artist}`.trim();
+      if (q) {
+        tasks.push(
+          (async () => {
+            try {
+              const items = await fetchJsonWithRetry(`https://lrclib.net/api/search?q=${encodeURIComponent(q)}`, 0);
+              if (Array.isArray(items)) {
+                for (const it of items) {
+                  const sc = scoreLrcItem(it, duration, firstCand.track, firstCand.artist || artistName);
+                  if (sc > 0) {
+                    collected.push({ item: it, score: sc });
+                  }
+                }
+                if (collected.some(c => c.item.syncedLyrics && c.score >= 310)) done();
+              }
+            } catch {}
+          })()
+        );
+      }
+    }
+
+    Promise.allSettled(tasks).then(done);
+  });
 
   if (collected.length > 0) {
     collected.sort((a, b) => b.score - a.score);
