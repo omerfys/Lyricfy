@@ -58,24 +58,24 @@
 Standart müzik çalarların şarkı sözü ekranları düz bir metin listesinden ibarettir; sadece satır bazlı kayar, görsel derinlik sunmaz ve video kliplerdeki uzun giriş (intro) farklarında senkronu kaybeder.
 
 **Lyricfy**, müzik dinleme deneyimini kinetik bir görsel şölene dönüştürür:
-1. **Kelime Bazlı Kinetik Tipografi:** Şarkıcının o saniyede söylediği kelime canlı bir çıkartma kutusuna (sticker badge) dönüşür, hafif bir açıyla eğilir ve etrafında neon bir parlama oluşturur. Uzun ve tireli kelimelerde dinamik font ölçekleme devreye girerek ekran dengesini korur.
-2. **Sıfır Kurulumla Canlı Medya Takibi:** Spotify API anahtarı veya OAuth girişi istemez. Doğrudan Windows GSMTC (Global System Media Transport Controls) ve tarayıcı pencere başlığı okuyucusuyla çalışır.
-3. **Hibrit YouTube Transkript & LRCLIB Zekası:** YouTube Music'te çalan resmi video kliplerin başındaki diyalog veya intro sürelerini YouTube `TimedText (json3)` altyazı verisiyle çapraz karşılaştırarak milisaniyelik farkı otomatik sıfırlar.
+1. **Kelime Bazlı Kinetik Tipografi (Varsayılan Tek Kelime Modu):** Uygulama varsayılan olarak **Tek Kelime** modunda açılır; şarkıcının o salisede söylediği kelime canlı bir çıkartma kutusuna (`cutout` / `glass` / `neon` sticker badge) dönüşür, hafif bir açıyla eğilir ve etrafında neon bir parlama oluşturur. Uzun ve tireli kelimelerde dinamik font ölçekleme devreye girerek ekran dengesini korur.
+2. **25ms (40 Hz) Donanım Taraması & ~225ms Paralel Söz Motoru:** Spotify API anahtarı veya OAuth girişi istemez. Doğrudan Windows GSMTC (Global System Media Transport Controls) üzerinden **25 ms** aralıklarla ve kayıpsız **Base64 UTF-8** borusuyla çalışır; `Dia`, `Arc`, `Zen`, `Brave`, `Opera`, `Vivaldi`, `Firefox`, `Chrome` ve `Edge` dahil tüm tarayıcıları anında algılar.
+3. **5 Katmanlı YouTube Music `ANDROID` InnerTube `srv3` & LRCLIB Zekası:** YouTube'un resmi `ANDROID (20.03.35)` InnerTube `/youtubei/v1/player` ve YouTube Music `WEB_REMIX` API'lerini kullanarak videonun `<timedtext format="3"> (srv3)` milisaniyelik kelime akışını (`<p t="..."><s t="...">`) çeker; klip başındaki uzun sinematik girişleri ve klip ortasındaki diyalog aralarını stüdyo sözleriyle kelime kelime (`<mm:ss.xx>`) hizalar.
 
 ---
 
 ## Özellikler (Features)
 
-- **3 Özel 3D Kinetik Sahne Modu:**
-  - **Odak Küresi (Fisheye):** Gerçek optik balıkgözü küresel lens distorsiyonu; aktif kelime merkezde büyürken geçmiş ve gelecek satırlar küre yüzeyine doğru bükülür.
+- **3 Özel 3D Kinetik Sahne Modu & 3 Senkron Hassasiyeti (`Tek Kelime`, `İkili/Üçlü`, `Tam Satır`):**
+  - **Odak Küresi (Fisheye):** Gerçek optik balıkgözü küresel lens distorsiyonu; aktif kelime merkezde büyürken geçmiş ve gelecek birimler küre yüzeyine doğru bükülür.
   - **Elmas Sahne (Visual):** Fare hareketine duyarlı 3D derinlik paralaksı, kelime bazlı renkli çıkartmalar ve akıcı dikey akış.
   - **Büyük Boy (Ship / 3D Drifting Wall):** Kelimelerin üç boyutlu izometrik bir duvara dizildiği ve Z-ekseninde süzüldüğü sinematik sahne.
-- **Spotify ve YouTube Music Canlı Entegrasyonu:**
+- **Spotify ve YouTube Music Kesintisiz Canlı Entegrasyonu:**
   - Tek tıkla `Oto`, `Spotify` veya `YT Music` kaynak filtreleme.
-  - Windows WinRT GSMTC zaman çizelgesi + yüksek frekanslı istemci enterpolasyonu.
-- **Hibrit YouTube Altyazı (`json3`) & LRCLIB Senkronizasyonu:**
-  - Şarkı sözlerini LRCLIB üzerinden kelime/satır bazlı çeker.
-  - YouTube videolarındaki intro/outro zaman farklarını `captionTracks` verisiyle otomatik hizalar; LRCLIB'de bulunmayan şarkılarda YouTube altyazılarını doğrudan kelime bazlı LRC'ye dönüştürür.
+  - Chromium tabanlı tarayıcılarda (`Dia`, `Chrome`, `Edge`, `Brave`, `Arc`, `Opera`) 8 saniye sonra oluşan GSMTC zaman çizelgesi donmasını tamamen ortadan kaldıran kesintisiz `1.0x` Faz Kilitli Döngü (`PLL`) saat senkronizasyonu.
+- **5 Katmanlı YouTube `ANDROID` `srv3` & LRCLIB Kelime Hizalama Motoru:**
+  - **Erken Çıkışlı Paralel Yarış (`Early-Resolving Parallel Race`):** `/api/get`, `/api/search?track_name` ve `/api/search?q` uç noktalarını eşzamanlı sorgulayarak ilk doğrulanmış senkron eşleşmeyi **~225 ms** içinde ekrana yansıtır.
+  - **Milisaniyelik `srv3` Kelime Hizalama:** YouTube videolarındaki intro/outro ve klip içi diyalog farklarını `ANDROID` InnerTube `srv3` kelime zamanlarıyla çapraz eşleştirerek Enhanced LRC (`<mm:ss.xx>`) üretir; LRCLIB'de olmayan şarkılarda YouTube Music `MPLYt_` sözlerini veya doğrudan `srv3` akışını senkronize eder.
 - **Albüm Kapağından Otomatik Renk Çıkarımı (`Auto Sync`):**
   - Çalan şarkının yüksek çözünürlüklü albüm kapağını iTunes API (TR & Global) üzerinden bulur.
   - Kapağın en canlı ve doygun renk kanallarını analiz ederek çıkartma rengini, aktif metin parlamasını ve sahne ambiyansını anlık günceller.
@@ -93,12 +93,12 @@ Standart müzik çalarların şarkı sözü ekranları düz bir metin listesinde
 
 ## Spotify & YouTube Music Hibrit Senkronizasyon Motoru
 
-YouTube Music veya YouTube üzerinde bir şarkı dinlerken video klibin başında yer alan 10-20 saniyelik sinematik girişler standart şarkı sözü uygulamalarında senkron kaymasına yol açar. Lyricfy bu sorunu hibrit bir mimariyle çözer:
+YouTube Music veya YouTube üzerinde bir şarkı dinlerken video klibin başında yer alan 30-40 saniyelik sinematik girişler, klip ortasındaki diyalog araları ve Chromium tarayıcıların GSMTC zaman çizelgesini yalnızca Play/Pause/Seek anında güncellemesi standart şarkı sözü uygulamalarında senkron kaymasına yol açar. Lyricfy bu sorunu **5 katmanlı bir mimariyle** çözer:
 
-1. **Canlı Medya Yakalama:** Arka plandaki `media-bridge` servisi Windows GSMTC oturumlarını ve tarayıcı süreçlerini dinleyerek çalan parçanın adını, sanatçısını ve milisaniyelik pozisyonunu yakalar.
-2. **Çift Kanallı Söz ve Altyazı Çekimi:** Uygulama aynı anda hem LRCLIB veritabanından stüdyo sözlerini hem de YouTube videosunun içindeki `captionTracks (json3)` zamanlı transkript segmentlerini indirir.
-3. **Otomatik İntro/Offset Dengeleme (`alignLrcWithYouTubeEvents`):** Stüdyo LRC satırları ile YouTube altyazı segmentleri arasındaki kelime benzerliği karşılaştırılır, medyan zaman farkı hesaplanır ve tüm söz zamanlamaları klip akışına otomatik olarak hizalanır.
-4. **Doğrudan Kelime Bazlı Altyazı Dönüşümü:** Eğer şarkı LRCLIB üzerinde yer almıyorsa (canlı konser kayıtları, remixler, akustik performanslar), YouTube transkriptindeki kelime zamanlamaları doğrudan Enhanced LRC formatına çevrilir.
+1. **25ms GSMTC Donanım Taraması & Kayıpsız Base64 UTF-8 Pipe:** Arka plandaki `live-daemon.ps1` servisi Windows GSMTC oturumlarını `25 ms` (40 Hz) frekansla tarar, Türkçe karakterleri (`ğ, ü, ş, ı, ö, ç, İ`) kayıpsız Base64 UTF-8 çerçeveleme ile aktarır ve tarayıcı henüz yeni şarkıyı tamponlarken (`Changing` / `Opened`) şarkı geçişini ilk salisede yakalar.
+2. **2 Aşamalı Anında Gösterim (~225ms) + Arka Plan `srv3` Yükseltmesi:** Şarkı başladığı anda paralel LRCLIB yarışı ile sözler `~225 ms` içinde ekrana basılır; şarkı YouTube Music'te çalıyorsa arka planda kesintisiz olarak YouTube `ANDROID` `srv3` milisaniyelik kelime hizalaması devreye girer.
+3. **Parçalı Yerel Offset Enterpolasyonu (`alignLrcWithYouTubeWordStream`):** Stüdyo LRC satırları ve kelimeleri, YouTube videosunun `<timedtext format="3"> (srv3)` kelime akışıyla (`<p t="..."><s t="...">`) tek tek eşleştirilir; hem klip başı introlar hem de klip ortası diyalog esleri dinamik kayan pencere (`runningOffset`) ile milisaniyesi milisaniyesine dengelenir.
+4. **YouTube Music Resmi Söz (`MPLYt_`) + `srv3` Hizalama:** Şarkı LRCLIB'de yoksa YouTube Music `WEB_REMIX` (`next` -> `browse`) üzerinden resmi düz sözler çekilip `srv3` kelime zamanlarıyla hizalanır veya doğrudan `srv3` kelime akışı Enhanced LRC formatına dönüştürülür.
 
 ---
 
@@ -106,20 +106,20 @@ YouTube Music veya YouTube üzerinde bir şarkı dinlerken video klibin başınd
 
 ```mermaid
 flowchart TD
-    A["Windows Medya Oturumu (Spotify / Chrome / Edge / PWA)"] --> B["PowerShell WinRT GSMTC & Pencere Başlığı Okuyucu"]
-    B --> C["Yerel Media Bridge Sunucusu (Port 4892 / IPC)"]
+    A["Windows Medya Oturumu (Spotify / Dia / Chrome / Edge / Arc / Brave / Firefox)"] --> B["25ms PowerShell WinRT GSMTC Daemon (Base64 UTF-8 Pipe)"]
+    B --> C["Yerel Media Bridge Sunucusu (Port 4892 / SSE 0ms Push)"]
     
-    C --> D1["LRCLIB Stüdyo Şarkı Sözü Motoru"]
-    C --> D2["YouTube TimedText (json3) Transkript Motoru"]
+    C --> D1["Erken Çıkışlı Paralel LRCLIB Yarışı (~225ms)"]
+    C --> D2["YouTube ANDROID (20.03.35) srv3 Kelime Akışı & WEB_REMIX Motoru"]
     C --> D3["iTunes API Albüm Kapağı & Canlı Palet Çıkarıcı"]
     
-    D1 & D2 --> E["Hibrit Senkron & İntro Offset Hizalayıcı"]
+    D1 & D2 --> E["Parçalı Yerel Offset & Kelime Bazlı (<mm:ss.xx>) Hizalayıcı"]
     
     E --> F1["Odak Küresi (3D Fisheye Lens Renderer)"]
     E --> F2["Elmas Sahne (Visual Parallax Renderer)"]
     E --> F3["Büyük Boy (3D Ship Drifting Wall Renderer)"]
     
-    D3 --> G["Dinamik Tema & Renkli Çıkartma (Sticker Badge) Stili"]
+    D3 --> G["Dinamik Tema & Renkli Çıkartma (Cutout / Glass / Neon) Stili"]
     G --> F1 & F2 & F3
 ```
 
